@@ -34,18 +34,20 @@ app.get('/fetch', async (req, res) => {
   }
 
   try {
-    const backendUrl = `${PROXY_BACKEND}/fetch.php?url=${encodeURIComponent(targetUrl)}`;
+    // PHP backend uses ?url= directly
+    const backendUrl = `${PROXY_BACKEND}/?url=${encodeURIComponent(targetUrl)}`;
     
     const response = await fetch(backendUrl);
-    const data = await response.text();
+    const data = await response.json();
     
-    // Forward content-type if present
-    const contentType = response.headers.get('content-type');
-    if (contentType) {
+    // Return the body from the proxy response
+    if (data.success && data.body) {
+      const contentType = data.contentType || 'text/plain';
       res.setHeader('Content-Type', contentType);
+      res.send(data.body);
+    } else {
+      res.status(500).json({ error: data.error || 'Proxy error' });
     }
-    
-    res.send(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -59,7 +61,9 @@ app.get('/stream', (req, res) => {
   }
 
   try {
-    const backendUrl = new URL(`${PROXY_BACKEND}/stream.php`);
+    // PHP backend uses ?action=stream&url=
+    const backendUrl = new URL(PROXY_BACKEND);
+    backendUrl.searchParams.set('action', 'stream');
     backendUrl.searchParams.set('url', targetUrl);
     
     // Forward range header if present
