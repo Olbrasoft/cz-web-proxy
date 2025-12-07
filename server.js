@@ -7,8 +7,20 @@ const cheerio = require('cheerio');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
+// Trust Azure's reverse proxy for X-Forwarded-* headers
+app.set('trust proxy', true);
+
 // Czech proxy backend
 const PROXY_BACKEND = 'http://proxy.unas.cz';
+
+/**
+ * Get the proxy base URL with correct protocol
+ */
+function getProxyBase(req) {
+  // Use X-Forwarded-Proto if available (Azure reverse proxy)
+  const protocol = req.get('X-Forwarded-Proto') || req.protocol || 'https';
+  return `${protocol}://${req.get('host')}`;
+}
 
 /**
  * Resolve a URL relative to a base URL
@@ -175,7 +187,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'ok',
     service: 'cz-web-proxy',
-    version: '1.1.0',
+    version: '1.1.1',
     endpoints: {
       browse: '/browse?url=<encoded_url> - Full page rendering with URL rewriting',
       fetch: '/fetch?url=<encoded_url> - Raw content fetch',
@@ -210,7 +222,7 @@ app.get('/browse', async (req, res) => {
     
     if (data.success && data.body) {
       const contentType = data.contentType || 'text/html';
-      const proxyBase = `${req.protocol}://${req.get('host')}`;
+      const proxyBase = getProxyBase(req);
       const contentCategory = getContentCategory(contentType, targetUrl);
       
       let body = data.body;
@@ -252,7 +264,7 @@ app.get('/fetch', async (req, res) => {
     
     if (data.success && data.body) {
       const contentType = data.contentType || 'text/plain';
-      const proxyBase = `${req.protocol}://${req.get('host')}`;
+      const proxyBase = getProxyBase(req);
       const contentCategory = getContentCategory(contentType, targetUrl);
       
       let body = data.body;
@@ -328,5 +340,5 @@ app.get('/stream', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`CZ Web Proxy v1.1.0 running on port ${PORT}`);
+  console.log(`CZ Web Proxy v1.1.1 running on port ${PORT}`);
 });
