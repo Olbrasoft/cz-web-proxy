@@ -36,9 +36,18 @@ app.get('/fetch', async (req, res) => {
   try {
     // PHP backend uses ?url= directly
     const backendUrl = `${PROXY_BACKEND}/?url=${encodeURIComponent(targetUrl)}`;
+    console.log('Fetching from backend:', backendUrl);
     
     const response = await fetch(backendUrl);
-    const data = await response.json();
+    const text = await response.text();
+    console.log('Backend response:', text.substring(0, 200));
+    
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return res.status(500).json({ error: 'Invalid JSON from backend', raw: text.substring(0, 200) });
+    }
     
     // Return the body from the proxy response
     if (data.success && data.body) {
@@ -46,10 +55,10 @@ app.get('/fetch', async (req, res) => {
       res.setHeader('Content-Type', contentType);
       res.send(data.body);
     } else {
-      res.status(500).json({ error: data.error || 'Proxy error' });
+      res.status(500).json({ error: data.error || 'Proxy error', details: data });
     }
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message, stack: error.stack });
   }
 });
 
