@@ -82,11 +82,8 @@ function rewriteHtml(html, baseUrl, proxyBase) {
       const resolvedUrl = resolveUrl(baseUrl, originalUrl);
       
       if (resolvedUrl) {
-        // For links, use /browse to maintain browsing context
-        const tagName = elem.tagName?.toLowerCase();
-        const isLink = tagName === 'a' && attr === 'href';
-        const endpoint = isLink ? 'browse' : 'fetch';
-        $elem.attr(attr, createProxyUrl(resolvedUrl, proxyBase, endpoint));
+        // For links, use /fetch to maintain browsing context (all go through /fetch now)
+        $elem.attr(attr, createProxyUrl(resolvedUrl, proxyBase, 'fetch'));
       }
     });
   });
@@ -128,8 +125,7 @@ function rewriteHtml(html, baseUrl, proxyBase) {
     }
   });
   
-  // Add base tag for any missed relative URLs (fallback)
-  // Remove existing base tags first
+  // Remove existing base tags
   $('base').remove();
   
   return $.html();
@@ -182,27 +178,10 @@ function getContentCategory(contentType, url) {
   return 'other';
 }
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'cz-web-proxy',
-    version: '1.1.1',
-    endpoints: {
-      browse: '/browse?url=<encoded_url> - Full page rendering with URL rewriting',
-      fetch: '/fetch?url=<encoded_url> - Raw content fetch',
-      stream: '/stream?url=<encoded_url> - Streaming (for video/audio)',
-      health: '/health'
-    }
-  });
-});
-
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
-// Browse endpoint - full page rendering with URL rewriting
-app.get('/browse', async (req, res) => {
+/**
+ * Common proxy handler for both /fetch and /browse
+ */
+async function handleProxyRequest(req, res) {
   const targetUrl = req.query.url;
   if (!targetUrl) {
     return res.status(400).json({ error: 'Missing url parameter' });
@@ -227,6 +206,7 @@ app.get('/browse', async (req, res) => {
       
       let body = data.body;
       
+      // Rewrite URLs in HTML and CSS content
       if (contentCategory === 'html') {
         body = rewriteHtml(body, targetUrl, proxyBase);
       } else if (contentCategory === 'css') {
@@ -241,50 +221,32 @@ app.get('/browse', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+}
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'cz-web-proxy',
+    version: '1.2.0',
+    endpoints: {
+      fetch: '/fetch?url=<encoded_url> - Proxy with full URL rewriting',
+      browse: '/browse?url=<encoded_url> - Alias for /fetch',
+      stream: '/stream?url=<encoded_url> - Binary streaming (video/audio)',
+      health: '/health'
+    }
+  });
 });
 
-// Proxy fetch endpoint - with optional URL rewriting for CSS
-app.get('/fetch', async (req, res) => {
-  const targetUrl = req.query.url;
-  if (!targetUrl) {
-    return res.status(400).json({ error: 'Missing url parameter' });
-  }
-
-  try {
-    const backendUrl = `${PROXY_BACKEND}/?url=${encodeURIComponent(targetUrl)}`;
-    const response = await fetch(backendUrl);
-    const text = await response.text();
-    
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch (e) {
-      return res.status(500).json({ error: 'Invalid JSON from backend' });
-    }
-    
-    if (data.success && data.body) {
-      const contentType = data.contentType || 'text/plain';
-      const proxyBase = getProxyBase(req);
-      const contentCategory = getContentCategory(contentType, targetUrl);
-      
-      let body = data.body;
-      
-      // Rewrite CSS URLs so fonts and images load correctly
-      if (contentCategory === 'css') {
-        body = rewriteCssUrls(body, targetUrl, proxyBase);
-      }
-      
-      res.setHeader('Content-Type', contentType);
-      res.send(body);
-    } else {
-      res.status(500).json({ error: data.error || 'Proxy error' });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+app.get('/health', (req, res) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Proxy stream endpoint (unchanged - for binary streaming)
+// Both /fetch and /browse now do full URL rewriting
+app.get('/fetch', handleProxyRequest);
+app.get('/browse', handleProxyRequest);
+
+// Proxy stream endpoint (for binary streaming - video/audio)
 app.get('/stream', (req, res) => {
   const targetUrl = req.query.url;
   if (!targetUrl) {
@@ -340,5 +302,5 @@ app.get('/stream', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`CZ Web Proxy v1.1.1 running on port ${PORT}`);
+  console.log(`CZ Web Proxy v1.2.0 running on port ${PORT}`);
 });
